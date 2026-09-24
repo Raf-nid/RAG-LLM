@@ -12,6 +12,7 @@ license = { text = "MIT" }
 
 dependencies = [
     "langchain-groq>=0.3",
+    "langchain-ollama>=0.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
 ]

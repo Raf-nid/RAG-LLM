@@ -1,33 +1,34 @@
 """
-Groq LLM provider.
+Ollama LLM provider.
 
-Wraps LangChain's ``ChatGroq`` behind ``LLMProviderProtocol``.
-Nothing outside this module should import ``ChatGroq`` or any LangChain type.
+Wraps LangChain's ``ChatOllama`` behind ``LLMProviderProtocol``.
+Nothing outside this module should import ``ChatOllama`` or any LangChain type.
+
+Ollama differences from Groq
+-----------------------------
+- No API key required — Ollama runs locally.
+- Requires a running ``ollama serve`` process at ``OLLAMA_BASE_URL``.
+- Model names refer to locally-pulled models (e.g. ``llama3.1``, ``mistral``).
+- No rate limits or usage costs.
+
+Tool calling with Ollama
+------------------------
+Tool calling support depends on the model.  Models known to work well:
+``llama3.1``, ``qwen2.5``, ``mistral-nemo``.  Smaller quantised models (3B, 7B)
+may produce malformed tool call requests.  The provider implementation is
+identical to Groq — differences are handled at the model level, not in code.
 
 Failure modes
 -------------
-- ``groq.APIConnectionError``   — network failure or DNS issue
-- ``groq.AuthenticationError``  — invalid or expired API key
-- ``groq.RateLimitError``       — token or request quota exceeded
-- ``groq.APIStatusError``       — unexpected HTTP status from Groq
-- ``ValueError`` on init        — missing API key caught before any HTTP call
-
-These propagate to the caller.  Retry and fallback logic belongs at the
-service layer, not here.
-
-Tool calling
-------------
-Groq supports native tool calling for all production models.  The provider
-uses ``ChatGroq.bind_tools(lc_tools)`` which passes tool definitions via the
-OpenAI-compatible `/v1/chat/completions` API.  The model returns a structured
-``AIMessage.tool_calls`` list when it wants to call a tool.
+- ``httpx.ConnectError`` — Ollama daemon not running at configured URL.
+- ``ollama.ResponseError`` — model not found locally (run ``ollama pull <model>``).
 """
 
 import logging
 import time
 
 from langchain_core.messages import AIMessage
-from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 
 from rag_assistant.config import Settings
 
@@ -46,39 +47,44 @@ from .interface import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["GroqProvider"]
+__all__ = ["OllamaProvider"]
 
 
-class GroqProvider:
+class OllamaProvider:
     """
-    LLM provider backed by the Groq API via LangChain.
+    LLM provider backed by a local Ollama instance.
 
     Parameters
     ----------
     settings:
-        Application settings.  ``groq_api_key`` must be set.
+        Application settings.  Uses ``llm_model`` and ``ollama_base_url``.
     client:
-        Optional pre-built ``ChatGroq`` for dependency injection in tests.
+        Optional pre-built ``ChatOllama`` for dependency injection in tests.
     """
 
     def __init__(
         self,
         settings: Settings,
         *,
-        client: ChatGroq | None = None,
+        client: ChatOllama | None = None,
     ) -> None:
-        if settings.groq_api_key is None:
+        if not settings.ollama_base_url:
+            raise ValueError("OLLAMA_BASE_URL must not be empty when LLM_PROVIDER=ollama.")
+        if not settings.llm_model:
             raise ValueError(
-                "GROQ_API_KEY must be set when LLM_PROVIDER=groq. "
-                "Add it to your .env file or as an environment variable."
+                "LLM_MODEL must not be empty when LLM_PROVIDER=ollama. "
+                "Set it to a model you have pulled locally (e.g. 'llama3.1')."
             )
 
         self._model_name: str = settings.llm_model
-        self._client: ChatGroq = client or ChatGroq(
-            model_name=self._model_name,
-            groq_api_key=settings.groq_api_key.get_secret_value(),  # type: ignore[arg-type]
+        self._base_url: str = settings.ollama_base_url
+        self._client: ChatOllama = client or ChatOllama(
+            model=self._model_name,
+            base_url=self._base_url,
         )
-        logger.debug("GroqProvider initialised (model=%s)", self._model_name)
+        logger.debug(
+            "OllamaProvider initialised (model=%s, base_url=%s)", self._model_name, self._base_url
+        )
 
     # ------------------------------------------------------------------
     # Standard chat
@@ -87,7 +93,7 @@ class GroqProvider:
     def chat(self, messages: list[ChatMessage]) -> LLMResponse:
         """Synchronous chat completion."""
         lc_messages = to_langchain_messages(messages)
-        logger.debug("GroqProvider.chat — %d message(s)", len(messages))
+        logger.debug("OllamaProvider.chat — %d message(s)", len(messages))
 
         t0 = time.perf_counter()
         response: AIMessage = self._client.invoke(lc_messages)  # type: ignore[assignment]
@@ -96,11 +102,11 @@ class GroqProvider:
         result = LLMResponse(
             content=str(response.content),
             model=self._model_name,
-            usage=parse_usage(response, provider_name="groq"),
+            usage=parse_usage(response, provider_name="ollama"),
             latency_ms=round(latency_ms, 2),
         )
         logger.debug(
-            "GroqProvider.chat — done (%.0fms, %d tokens)",
+            "OllamaProvider.chat — done (%.0fms, %d tokens)",
             result.latency_ms,
             result.usage.total_tokens,
         )
@@ -109,7 +115,7 @@ class GroqProvider:
     async def achat(self, messages: list[ChatMessage]) -> LLMResponse:
         """Asynchronous chat completion."""
         lc_messages = to_langchain_messages(messages)
-        logger.debug("GroqProvider.achat — %d message(s)", len(messages))
+        logger.debug("OllamaProvider.achat — %d message(s)", len(messages))
 
         t0 = time.perf_counter()
         response: AIMessage = await self._client.ainvoke(lc_messages)  # type: ignore[assignment]
@@ -118,11 +124,11 @@ class GroqProvider:
         result = LLMResponse(
             content=str(response.content),
             model=self._model_name,
-            usage=parse_usage(response, provider_name="groq"),
+            usage=parse_usage(response, provider_name="ollama"),
             latency_ms=round(latency_ms, 2),
         )
         logger.debug(
-            "GroqProvider.achat — done (%.0fms, %d tokens)",
+            "OllamaProvider.achat — done (%.0fms, %d tokens)",
             result.latency_ms,
             result.usage.total_tokens,
         )
@@ -140,13 +146,12 @@ class GroqProvider:
         """
         Synchronous chat with tool definitions bound.
 
-        Groq uses native OpenAI-compatible tool calling.  When the model
-        decides to use a tool it returns an ``AIMessage`` with a non-empty
-        ``tool_calls`` list instead of (or in addition to) text content.
+        Ollama uses the same API as Groq for tool calling.  Reliability
+        varies by model — prefer ``llama3.1`` or ``qwen2.5`` for tools.
         """
         lc_messages = to_langchain_messages(messages)
         lc_tools = [tool_schema_to_lc_dict(s) for s in tool_schemas]
-        logger.debug("GroqProvider.chat_with_tools — %d tool(s)", len(lc_tools))
+        logger.debug("OllamaProvider.chat_with_tools — %d tool(s)", len(lc_tools))
 
         t0 = time.perf_counter()
         response: AIMessage = self._client.bind_tools(lc_tools).invoke(lc_messages)  # type: ignore[assignment]
@@ -157,11 +162,11 @@ class GroqProvider:
             content=str(response.content) if response.content else None,
             tool_calls=tool_calls,
             model=self._model_name,
-            usage=parse_usage(response, provider_name="groq"),
+            usage=parse_usage(response, provider_name="ollama"),
             latency_ms=round(latency_ms, 2),
         )
         logger.debug(
-            "GroqProvider.chat_with_tools — done (%.0fms, tool_calls=%d)",
+            "OllamaProvider.chat_with_tools — done (%.0fms, tool_calls=%d)",
             result.latency_ms,
             len(result.tool_calls),
         )
@@ -175,7 +180,7 @@ class GroqProvider:
         """Asynchronous chat with tool definitions bound."""
         lc_messages = to_langchain_messages(messages)
         lc_tools = [tool_schema_to_lc_dict(s) for s in tool_schemas]
-        logger.debug("GroqProvider.achat_with_tools — %d tool(s)", len(lc_tools))
+        logger.debug("OllamaProvider.achat_with_tools — %d tool(s)", len(lc_tools))
 
         t0 = time.perf_counter()
         response: AIMessage = await self._client.bind_tools(lc_tools).ainvoke(lc_messages)  # type: ignore[assignment]
@@ -186,29 +191,27 @@ class GroqProvider:
             content=str(response.content) if response.content else None,
             tool_calls=tool_calls,
             model=self._model_name,
-            usage=parse_usage(response, provider_name="groq"),
+            usage=parse_usage(response, provider_name="ollama"),
             latency_ms=round(latency_ms, 2),
         )
         logger.debug(
-            "GroqProvider.achat_with_tools — done (%.0fms, tool_calls=%d)",
+            "OllamaProvider.achat_with_tools — done (%.0fms, tool_calls=%d)",
             result.latency_ms,
             len(result.tool_calls),
         )
         return result
 
-    def as_lc_model(self) -> ChatGroq:
+    def as_lc_model(self) -> ChatOllama:
         """
-        Return the underlying ``ChatGroq`` instance.
+        Return the underlying ``ChatOllama`` instance.
 
         Use this when you need to compose LCEL chains or call
         ``model.with_structured_output(schema)`` directly.
 
-        Example
-        -------
-        >>> chain = build_chat_chain(prompt, provider.as_lc_model())
-        >>> result = call_structured_native(provider.as_lc_model(), messages, Schema)
+        Note: reliability of ``with_structured_output`` varies by model.
+        Prefer ``llama3.1`` or ``qwen2.5:7b+`` for structured outputs.
         """
         return self._client
 
     def __repr__(self) -> str:
-        return f"GroqProvider(model={self._model_name!r})"
+        return f"OllamaProvider(model={self._model_name!r}, base_url={self._base_url!r})"

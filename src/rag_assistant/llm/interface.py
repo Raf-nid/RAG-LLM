@@ -7,18 +7,35 @@ module directly.
 
 Design notes
 ------------
-- ``ChatMessage`` and ``LLMResponse`` are frozen dataclasses: immutable,
-  hashable, printable, and require no dependencies beyond the standard library.
+- All value types are dataclasses.  ``frozen=True`` makes them immutable and
+  safe to pass around without defensive copying.
 - ``LLMProviderProtocol`` is a structural Protocol (PEP 544).  Any class with
   the correct method signatures satisfies it without explicit inheritance.
-  This keeps provider implementations independent of this module.
 - ``@runtime_checkable`` allows ``isinstance(obj, LLMProviderProtocol)``
-  checks in the factory and in tests.
+  checks in tests and the factory.
+
+Tool calling additions
+----------------------
+``ToolCallRequest``, ``ToolSchema``, and ``ToolCallingResponse`` live here
+(not in the tools package) because they describe the *LLM interface* — how
+the model requests a tool call and how the provider returns that request.
+The tools themselves (their implementation and execution) live in
+``rag_assistant.tools``.
+
+``MessageRole.tool`` and the ``tool_call_id`` / ``tool_calls`` fields on
+``ChatMessage`` represent tool-result messages in an ongoing conversation.
+They are the mechanism for feeding tool execution results back to the model.
 """
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
+
+# ---------------------------------------------------------------------------
+# Message roles
+# ---------------------------------------------------------------------------
 
 
 class MessageRole(StrEnum):
@@ -27,6 +44,43 @@ class MessageRole(StrEnum):
     system = "system"
     user = "user"
     assistant = "assistant"
+    tool = "tool"  # tool execution result, fed back to the model
+
+
+# ---------------------------------------------------------------------------
+# Tool call request (produced by the model)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ToolCallRequest:
+    """
+    A single tool-call request produced by the model during inference.
+
+    The model generates this; the application validates and executes it.
+    The ``call_id`` must be preserved so the model can correlate the
+    tool result with the request it made.
+
+    Fields
+    ------
+    call_id
+        Provider-assigned identifier for this specific call.
+        Must be echoed back in the ``ToolMessage`` (tool-result message).
+    tool_name
+        Name of the tool the model wants to call.
+    arguments
+        Raw dict of arguments as produced by the model.  These MUST be
+        validated against the tool's input schema before execution.
+    """
+
+    call_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# Chat message (extended for tool calling)
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -34,12 +88,37 @@ class ChatMessage:
     """
     A single message in a conversation.
 
-    ``frozen=True`` makes instances immutable and hashable.
-    Pass lists of these into any provider's ``chat()`` method.
+    Standard usage (``role`` in system / user / assistant):
+        ChatMessage(role=MessageRole.user, content="What is RAG?")
+
+    Tool-result usage (``role == MessageRole.tool``):
+        ChatMessage(
+            role=MessageRole.tool,
+            content="19481",          # tool execution output
+            tool_call_id="call_abc",  # must match the ToolCallRequest.call_id
+        )
+
+    Assistant-with-tool-calls usage:
+        ChatMessage(
+            role=MessageRole.assistant,
+            content="",               # empty when model only issued tool calls
+            tool_calls=(req1, req2),  # the requests the model made
+        )
+
+    ``frozen=True`` makes instances immutable.  Note: because ``tool_calls``
+    is a tuple of mutable ``ToolCallRequest`` objects, instances are not
+    deeply hashable, but equality comparison works correctly.
     """
 
     role: MessageRole
     content: str
+    tool_call_id: str | None = field(default=None)
+    tool_calls: tuple[ToolCallRequest, ...] = field(default_factory=tuple)
+
+
+# ---------------------------------------------------------------------------
+# Token usage
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -47,8 +126,7 @@ class TokenUsage:
     """
     Token consumption reported by the model.
 
-    Tracking these numbers is essential for cost estimation and
-    for understanding context-window pressure.
+    Track these numbers to estimate cost and to detect runaway usage.
     """
 
     prompt_tokens: int
@@ -56,10 +134,15 @@ class TokenUsage:
     total_tokens: int
 
 
+# ---------------------------------------------------------------------------
+# Standard LLM response
+# ---------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class LLMResponse:
     """
-    The typed result returned by every provider.
+    The typed result of a standard ``chat()`` or ``achat()`` call.
 
     Fields
     ------
@@ -67,19 +150,73 @@ class LLMResponse:
         The text generated by the model.
     model
         The exact model identifier that produced the response.
-        Useful when the same provider offers several models.
     usage
-        Token counts.  Use these to estimate cost and to log usage.
+        Token counts.
     latency_ms
-        Wall-clock time from the moment the request left the client
-        to the moment the full response was received.  Does not include
-        time spent building the prompt or parsing the response.
+        Wall-clock time from request dispatch to full response receipt.
     """
 
     content: str
     model: str
     usage: TokenUsage
     latency_ms: float
+
+
+# ---------------------------------------------------------------------------
+# Tool schema (passed to the model)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ToolSchema:
+    """
+    Provider-neutral tool definition sent to the model before inference.
+
+    The model uses ``name`` and ``description`` to decide whether to call
+    the tool.  ``parameters`` is the JSON Schema that describes the tool's
+    arguments.  The provider layer converts this to the format required
+    by each LLM API (OpenAI function-calling dict, etc.).
+    """
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# Tool-calling response
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ToolCallingResponse:
+    """
+    The result of a ``chat_with_tools()`` call.
+
+    Two possible outcomes:
+    1. Model responded directly (no tool calls) → ``content`` is set,
+       ``tool_calls`` is empty.
+    2. Model wants to call tools → ``tool_calls`` is non-empty,
+       ``content`` may be empty or contain a preamble.
+
+    Check ``has_tool_calls`` before accessing ``tool_calls``.
+    """
+
+    content: str | None
+    tool_calls: tuple[ToolCallRequest, ...]
+    model: str
+    usage: TokenUsage
+    latency_ms: float
+
+    @property
+    def has_tool_calls(self) -> bool:
+        """True when the model issued one or more tool call requests."""
+        return len(self.tool_calls) > 0
+
+
+# ---------------------------------------------------------------------------
+# Provider protocol
+# ---------------------------------------------------------------------------
 
 
 @runtime_checkable
@@ -89,23 +226,45 @@ class LLMProviderProtocol(Protocol):
 
     Why a Protocol instead of an ABC?
     ----------------------------------
-    ABCs require explicit inheritance.  Protocols use structural (duck) typing:
-    any class with the correct method signatures satisfies the contract,
-    regardless of its class hierarchy.  This means:
+    ABCs require explicit inheritance.  Protocols use structural typing:
+    any class with the correct method signatures satisfies the contract.
+    Test doubles need no inheritance boilerplate.
 
-    - Provider implementations remain independent of this module.
-    - Test doubles (mocks, fakes) work without inheritance.
-    - The interface can evolve without forcing changes to all providers.
-
-    Implementing classes must provide both sync and async variants because:
-    - Sync: useful in scripts, CLI tools, and tests.
-    - Async: required for FastAPI endpoints and concurrent workloads.
+    Tool calling
+    ------------
+    ``chat_with_tools`` passes ``ToolSchema`` objects (provider-neutral)
+    to the model via the provider's native API.  The provider converts
+    them to whatever format the underlying SDK requires.  The application
+    layer never references Groq or Ollama tool formats.
     """
 
     def chat(self, messages: list[ChatMessage]) -> LLMResponse:
-        """Send messages and return the model's response (synchronous)."""
+        """Send messages and return the model's text response (sync)."""
         ...
 
     async def achat(self, messages: list[ChatMessage]) -> LLMResponse:
-        """Send messages and return the model's response (asynchronous)."""
+        """Send messages and return the model's text response (async)."""
+        ...
+
+    def chat_with_tools(
+        self,
+        messages: list[ChatMessage],
+        tool_schemas: list[ToolSchema],
+    ) -> ToolCallingResponse:
+        """
+        Send messages with available tool definitions (sync).
+
+        Returns either a direct text response or a list of tool call
+        requests from the model.
+        """
+        ...
+
+    async def achat_with_tools(
+        self,
+        messages: list[ChatMessage],
+        tool_schemas: list[ToolSchema],
+    ) -> ToolCallingResponse:
+        """
+        Send messages with available tool definitions (async).
+        """
         ...
