@@ -6,8 +6,8 @@ class to instantiate based on the configuration.  Application code calls
 ``create_llm_provider(settings)`` and receives an ``LLMProviderProtocol``
 — it never names a specific provider class.
 
-Adding a new provider (e.g. OpenAI) means:
-  1. Create ``src/rag_assistant/llm/openai.py`` with an ``OpenAIProvider`` class.
+Adding a new provider (e.g. Ollama) means:
+  1. Create ``src/rag_assistant/llm/ollama.py`` with an ``OllamaProvider`` class.
   2. Add a branch to the ``if`` chain below.
   3. No other file changes required.
 """

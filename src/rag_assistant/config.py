@@ -29,7 +29,6 @@ class LLMProvider(StrEnum):
     """Supported LLM providers."""
 
     groq = "groq"
-    openai = "openai"
     ollama = "ollama"
 
 
@@ -66,20 +65,16 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     llm_provider: LLMProvider = Field(
         default=LLMProvider.groq,
-        description="Active LLM provider (groq | openai | ollama).",
+        description="Active LLM provider (groq | ollama).",
     )
     llm_model: str = Field(
-        default="openai/gpt-oss-20b",
+        default="qwen/qwen3.8-27b",
         description="Model name for the active provider.",
     )
 
     groq_api_key: SecretStr | None = Field(
         default=None,
         description="Groq API key. Required when LLM_PROVIDER=groq.",
-    )
-    openai_api_key: SecretStr | None = Field(
-        default=None,
-        description="OpenAI API key. Required when LLM_PROVIDER=openai.",
     )
     ollama_base_url: str = Field(
         default="http://localhost:11434",
@@ -128,7 +123,6 @@ class Settings(BaseSettings):
 
     @field_validator(
         "groq_api_key",
-        "openai_api_key",
         "qdrant_api_key",
         "langsmith_api_key",
         mode="before",

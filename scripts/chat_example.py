@@ -12,7 +12,7 @@ Requirements
 ------------
 Set GROQ_API_KEY in your .env file (or as an environment variable).
 LLM_PROVIDER defaults to "groq".
-LLM_MODEL defaults to "openai/gpt-oss-20b".
+LLM_MODEL defaults to "qwen/qwen3.8-27b".
 """
 
 import logging

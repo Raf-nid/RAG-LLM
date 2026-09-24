@@ -19,7 +19,7 @@ from rag_assistant.llm.interface import LLMProviderProtocol
 def _make_settings(**overrides: object) -> Settings:
     base: dict[str, object] = {
         "llm_provider": "groq",
-        "llm_model": "openai/gpt-oss-20b",
+        "llm_model": "qwen/qwen3.8-27b",
         "groq_api_key": "sk-test-key",
     }
     base.update(overrides)
@@ -44,6 +44,6 @@ class TestCreateLLMProvider:
 
     def test_unimplemented_provider_raises(self) -> None:
         """Unimplemented providers must raise NotImplementedError, not silently fail."""
-        s = _make_settings(llm_provider="openai", openai_api_key="sk-test")
-        with pytest.raises(NotImplementedError, match="openai"):
+        s = _make_settings(llm_provider="ollama")
+        with pytest.raises(NotImplementedError, match="ollama"):
             create_llm_provider(s)

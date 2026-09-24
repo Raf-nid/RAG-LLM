@@ -45,7 +45,7 @@ def _make_settings(**overrides: object) -> Settings:
     """Build a Settings object suitable for unit tests."""
     base: dict[str, object] = {
         "llm_provider": "groq",
-        "llm_model": "openai/gpt-oss-20b",
+        "llm_model": "qwen/qwen3.8-27b",
         "groq_api_key": "sk-test-key-not-real",
     }
     base.update(overrides)

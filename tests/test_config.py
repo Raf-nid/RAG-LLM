@@ -32,12 +32,11 @@ class TestSettingsDefaults:
 
     def test_default_llm_model(self) -> None:
         s = _settings()
-        assert s.llm_model == "openai/gpt-oss-20b"
+        assert s.llm_model == "qwen/qwen3.8-27b"
 
     def test_no_api_keys_by_default(self) -> None:
         s = _settings()
         assert s.groq_api_key is None
-        assert s.openai_api_key is None
         assert s.langsmith_api_key is None
 
     def test_langchain_tracing_disabled_by_default(self) -> None:
@@ -57,12 +56,12 @@ class TestSettingsOverride:
         assert s.environment == Environment.production
 
     def test_override_llm_provider(self) -> None:
-        s = _settings(llm_provider="openai")
-        assert s.llm_provider == LLMProvider.openai
+        s = _settings(llm_provider="ollama")
+        assert s.llm_provider == LLMProvider.ollama
 
     def test_override_llm_model(self) -> None:
-        s = _settings(llm_model="gpt-4o")
-        assert s.llm_model == "gpt-4o"
+        s = _settings(llm_model="llama3.1")
+        assert s.llm_model == "llama3.1"
 
     def test_set_groq_api_key(self) -> None:
         s = _settings(groq_api_key="sk-test-key")
@@ -90,8 +89,4 @@ class TestSecretFieldSafety:
 
     def test_groq_api_key_repr_hides_value(self) -> None:
         s = _settings(groq_api_key="super-secret")
-        assert "super-secret" not in repr(s)
-
-    def test_openai_api_key_repr_hides_value(self) -> None:
-        s = _settings(openai_api_key="super-secret")
         assert "super-secret" not in repr(s)

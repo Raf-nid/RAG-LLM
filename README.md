@@ -18,7 +18,7 @@ User query
     ↓
 FastAPI
     ↓
-LLM provider abstraction (Groq / OpenAI / Ollama)
+LLM provider abstraction (Groq / Ollama)
     ↓
 RAG pipeline
     ├── Hybrid retrieval (dense + lexical)
@@ -40,7 +40,7 @@ PostgreSQL (conversation state)
 | Package manager    | uv                                  |
 | API                | FastAPI                             |
 | LLM framework      | LangChain, LangGraph                |
-| LLM providers      | Groq, OpenAI, Ollama                |
+| LLM providers      | Groq, Ollama                        |
 | Vector store       | Qdrant                              |
 | Relational DB      | PostgreSQL                          |
 | Cache              | Redis                               |
