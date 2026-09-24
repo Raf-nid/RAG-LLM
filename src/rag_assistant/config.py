@@ -13,7 +13,7 @@ Usage:
 
 from enum import StrEnum
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
         description="Active LLM provider (groq | openai | ollama).",
     )
     llm_model: str = Field(
-        default="llama-3.3-70b-versatile",
+        default="openai/gpt-oss-20b",
         description="Model name for the active provider.",
     )
 
@@ -125,6 +125,20 @@ class Settings(BaseSettings):
         default=False,
         description="Enable LangSmith tracing. Requires LANGSMITH_API_KEY.",
     )
+
+    @field_validator(
+        "groq_api_key",
+        "openai_api_key",
+        "qdrant_api_key",
+        "langsmith_api_key",
+        mode="before",
+    )
+    @classmethod
+    def empty_secret_to_none(cls, value: object) -> object:
+        """Treat blank env vars as unset, not as an empty secret."""
+        if value == "":
+            return None
+        return value
 
 
 # ---------------------------------------------------------------------------
