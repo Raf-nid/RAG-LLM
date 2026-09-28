@@ -9,8 +9,6 @@ This repository has two goals:
 1. Build a serious, production-oriented AI Engineering application.
 2. Develop genuine proficiency in the technologies and concepts used to build it.
 
-The final system is intended to be a credible AI Engineer portfolio project.
-
 ## Architecture overview
 
 ```
