@@ -6,6 +6,37 @@ This document describes the evaluation strategy for the RAG system.
 
 Evaluation is a first-class feature, not an afterthought. Every change to the retrieval pipeline must be measured against a baseline to ensure it actually improves the system.
 
+## T²-RAGBench Baseline
+
+We use the [T²-RAGBench](https://huggingface.co/datasets/G4KMU/t2-ragbench) dataset for evaluation. This benchmark provides:
+
+- **23,088 QA pairs** across financial documents with text and tables
+- **7,300+ unique document contexts** from SEC filings
+- **3 subsets**: FinQA, ConvFinQA, TAT-DQA
+- **Context-independent questions** (reformulated for fair retrieval evaluation)
+- **License**: CC-BY-4.0
+
+### Baseline Measurements (FinQA subset, n=50 queries, 192 documents)
+
+| Method | Recall@1 | Recall@5 | Recall@10 | MRR | Latency (ms) |
+|--------|----------|----------|-----------|-----|--------------|
+| **Dense** | 0.480 | 0.600 | 0.660 | 0.536 | 6.3 |
+| **BM25** | 0.840 | 0.960 | 0.960 | 0.893 | 0.7 |
+| **Hybrid** | 0.520 | 0.840 | 0.980 | 0.656 | 7.2 |
+
+**Key observations**:
+- BM25 excels on this dataset due to exact keyword matching (financial terms, numbers)
+- Hybrid achieves the highest Recall@10 (0.98), combining the best of both methods
+- Dense retrieval struggles with exact financial terminology
+
+### Metric Targets (based on baseline)
+
+| Metric | Current Best | Target | Notes |
+|--------|-------------|--------|-------|
+| **Recall@5** | 0.96 (BM25) | > 0.90 | Maintain BM25 performance |
+| **Recall@10** | 0.98 (Hybrid) | > 0.95 | Hybrid for maximum recall |
+| **MRR** | 0.89 (BM25) | > 0.80 | First result should be relevant |
+
 ## Evaluation Dimensions
 
 ### 1. Retrieval Quality
@@ -14,8 +45,8 @@ How well does the system retrieve relevant documents?
 
 | Metric | Definition | Target |
 |--------|-----------|--------|
-| **Recall@K** | % of relevant docs in top K results | > 80% |
-| **MRR** | Mean Reciprocal Rank of first relevant doc | > 0.7 |
+| **Recall@K** | % of relevant docs in top K results | > 90% (K=5) |
+| **MRR** | Mean Reciprocal Rank of first relevant doc | > 0.8 |
 | **Precision@K** | % of top K results that are relevant | > 60% |
 
 ### 2. Generation Quality
