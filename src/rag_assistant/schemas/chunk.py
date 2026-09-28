@@ -21,6 +21,7 @@ During retrieval:
     retrieved = RetrievedChunk(chunk=chunk, score=0.85, retrieval_method="dense")
 """
 
+import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 from hashlib import sha256
@@ -208,12 +209,13 @@ class RetrievedChunk(BaseModel):
 
 def generate_chunk_id(source: str, url: str, text: str) -> str:
     """
-    Generate a stable, content-based chunk ID.
+    Generate a stable, content-based chunk ID as a valid UUID.
 
-    The ID is a truncated SHA-256 hash of the source, URL, and text.
-    This ensures:
-    - Same content → same ID (idempotent indexing)
-    - Different content → different ID (no collisions)
+    Uses UUID5 (SHA-1 based, deterministic) with a custom namespace
+    derived from the content. This ensures:
+    - Same content -> same UUID (idempotent indexing)
+    - Different content -> different UUID (no collisions)
+    - Valid UUID format (required by Qdrant 1.19+)
 
     Parameters
     ----------
@@ -227,12 +229,14 @@ def generate_chunk_id(source: str, url: str, text: str) -> str:
     Returns
     -------
     str
-        16-character hexadecimal ID.
+        UUID string in standard format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
 
     Example
     -------
     >>> generate_chunk_id("langchain", "https://...", "Some text")
-    'a1b2c3d4e5f6g7h8'
+    '550e8400-e29b-41d4-a716-446655440000'
     """
     content = f"{source}:{url}:{text}"
-    return sha256(content.encode()).hexdigest()[:16]
+    content_hash = sha256(content.encode()).hexdigest()
+    namespace = uuid.UUID(content_hash[:32])
+    return str(uuid.uuid5(namespace, content))

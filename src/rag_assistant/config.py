@@ -82,11 +82,23 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # Vector store
+    # Embeddings
+    # ------------------------------------------------------------------
+    embedding_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="Sentence-transformers model name for embeddings.",
+    )
+    embedding_device: str = Field(
+        default="cpu",
+        description="Device for embedding inference (cpu | cuda | mps).",
+    )
+
+    # ------------------------------------------------------------------
+    # Vector store (Qdrant)
     # ------------------------------------------------------------------
     qdrant_url: str = Field(
         default="http://localhost:6333",
-        description="Qdrant instance URL.",
+        description="Qdrant instance URL. Use ':memory:' for in-memory mode.",
     )
     qdrant_api_key: SecretStr | None = Field(
         default=None,
@@ -95,6 +107,22 @@ class Settings(BaseSettings):
     qdrant_collection_name: str = Field(
         default="rag_assistant",
         description="Qdrant collection used for document storage.",
+    )
+
+    # ------------------------------------------------------------------
+    # Chunking
+    # ------------------------------------------------------------------
+    chunk_size: int = Field(
+        default=800,
+        ge=100,
+        le=4000,
+        description="Target chunk size in characters.",
+    )
+    chunk_overlap: int = Field(
+        default=100,
+        ge=0,
+        le=500,
+        description="Overlap between chunks in characters.",
     )
 
     # ------------------------------------------------------------------
