@@ -32,7 +32,11 @@ ENV/
 # uv
 # =============================================================================
 .uv/
-uv.lock          # commit this file in applications; remove line to do so
+
+# =============================================================================
+# Reports (local learning documentation, not for version control)
+# =============================================================================
+rapports/
 
 # =============================================================================
 # Environment / secrets — NEVER commit these
